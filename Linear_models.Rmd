@@ -1,0 +1,6 @@
+---
+title: "Linear_models"
+author: "Kimberly Lopez"
+date: "2024-11-07"
+output: github_document
+---
