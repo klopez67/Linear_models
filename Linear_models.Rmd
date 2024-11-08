@@ -4,3 +4,289 @@ author: "Kimberly Lopez"
 date: "2024-11-07"
 output: github_document
 ---
+
+**Example** 
+
+```{r}
+library(tidyverse)
+library(p8105.datasets)
+
+set.seed(1)
+
+```
+
+# Model fitting with the Airbnb data 
+
+First some data cleaning 
+```{r}
+data("nyc_airbnb")
+
+nyc_airbnb = 
+  nyc_airbnb |> 
+  mutate(stars = review_scores_location / 2) |> 
+  rename(
+    borough = neighbourhood_group,
+    neighborhood = neighbourhood) |> 
+  filter(borough != "Staten Island") |> 
+  select(price, stars, borough, neighborhood, room_type)
+```
+
+**Fit a simple model** 
+
+We can get the summary of a fit model using the `summary()` function. We can also use `names()` to know the other variables from the model fitted. 
+
+- we can extract the coefficents of the model using `coef()` 
+- or we can use `broom::tidy()` to return values in a tibble
+- `broom::glance()`
+
+```{r}
+fit = lm(price ~ stars, data = nyc_airbnb)
+
+summary(fit)
+names(fit)
+coef(fit)
+
+fit|>
+  broom::tidy()|>
+  select(term,estimate,p.value)
+```
+
+**A bit more advance simple model** 
+
+Linear model with two variables 
+```{r}
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+
+fit|> 
+  broom::tidy()|>
+  select(term,estimate,p.value)|>
+  mutate(
+    term= str_replace(term, "borough", "Borough: "))|>
+      knitr::kable(digits=3)
+```
+
+WE reload the data to apply the correct factors in accordance to 
+
+It’s important to note that changing reference categories won’t change “fit” or statistical sigificance, but can affect ease of interpretation.
+
+Now the data will show the same values, but in comparason to the refereance group: 
+
+```{r}
+nyc_airbnb = 
+  nyc_airbnb |> 
+  mutate(
+    borough = fct_infreq(borough),
+    room_type = fct_infreq(room_type))
+
+
+fit = lm(price ~ stars + borough, data = nyc_airbnb)
+
+fit|> 
+  broom::tidy()|>
+  select(term,estimate,p.value)|>
+  mutate(
+    term= str_replace(term, "borough", "Borough: "))|>
+      knitr::kable(digits=3)
+```
+
+# Tidying output 
+
+
+# Diagnostics 
+
+**Most diagnostics use residuals** 
+
+First some exploratory data anlysis 
+```{r}
+ nyc_airbnb|>
+  ggplot(aes(x=stars,y=price))+
+  geom_point()+
+  stat_smooth(method= "lm")
+```
+
+The `modelr` package can be used to add residuals and fitted values to a dataframe.
+```{r}
+modelr::add_residuals(nyc_airbnb, fit)
+```
+
+
+We can plot them with a violin plot 
+```{r}
+modelr::add_residuals(nyc_airbnb, fit)|>
+  ggplot(aes(x=borough, y=resid))+
+  geom_violin()+
+  ylim(-100,100)
+```
+
+We can plot the residua;s against stars which results in a skewed plot. 
+
+```{r}
+nyc_airbnb|>
+  modelr::add_residuals(fit)|>
+  modelr::add_predictions(fit)|>
+  ggplot(aes(x=pred, y= resid))+ 
+  geom_point()
+```
+
+# Hypothesis Testing 
+
+Model summaries include results of t-tests for single coefficients, and are the standard way of assessing statistical significance.
+
+Testing multiple coefficients is somewhat more complicated. A useful approach is to use nested models, meaning that the terms in a simple “null” model are a subset of the terms in a more complex “alternative” model
+
+**When adding more than one variable use `ANOVA`:**
+
+Using a mixed model is reasonable for more than 2 but still low variables.
+
+```{r}
+fit_null = lm(price ~ stars + borough, data = nyc_airbnb)
+fit_alt = lm(price ~ stars + borough + room_type, data = nyc_airbnb)
+```
+
+Anova only works if your doing nested models 
+
+```{r}
+fit_null|>
+  broom::tidy()
+
+fit_alt|> 
+  broom::tidy()
+
+anova(fit_null,fit_alt)|>
+  broom::tidy()
+```
+
+# Nesting Data
+
+**Do effects differ across broughs**
+ 
+ Does increasing price in manhatten or brooklyn have an affect? Does shared rooms in brooklyn versus manhatten differ?
+ 
+ First use 
+```{r}
+
+nyc_airbnb |> 
+  lm(price ~ stars * borough + room_type * borough, data = _) |> 
+  broom::tidy() |> 
+  knitr::kable(digits = 3)
+```
+ 
+ Then, We could also fit seperate models to see indivdually how they interact in each borough.
+ 
+ We see effetc of room and stars in Manhattan only 
+```{r eval=FALSE}
+nyc_airbnb|> 
+  filter(borough=="Manhatten")|>
+  lm(price ~ stars + room_type, data = _)|>
+  broom::tidy()
+
+nyc_airbnb|> 
+  filter(borough=="Brooklyn")|>
+  lm(price~ stars + room_type, data = _)|>
+  broom::tidy()
+```
+ 
+ Get fancy and use list columns instead 
+ 
+ We can take data and put it into the argument element in lm which we can then create a new column `model`. We can take it a step further and map again using broom::tidy 
+
+**This is model fitting stuff** 
+```{r}
+
+nyc_airbnb|> 
+  nest(data = -borough)|>
+  mutate(
+    model= map(data,\(x) lm(price ~ stars + room_type, data = x) ), 
+    reuslts = map(model, broom::tidy)
+  )
+  
+```
+
+
+We can check specifically for each borough and unset the reuslts column and tidy the data to get values on coefficients for each variable. 
+
+**This is more tidying stuff after model fitting**
+```{r}
+nyc_airbnb|> 
+  nest(data = -borough)|>
+  mutate(
+    model= map(data,\(x) lm(price ~ stars + room_type, data = x) ), 
+    results = map(model, broom::tidy)
+  )|>
+  select(borough,results)|>
+  unnest(results)|>
+  select(borough, term, estimate)|>
+  pivot_wider ( 
+    names_from = term,
+    values_from = estimate)
+```
+
+**Question: What about room types across manahten neighbohoods?** 
+
+- we are filtering a variable borough to search for a specific borough and neighborhood 
+
+```{r}
+nyc_airbnb|> 
+  filter( 
+    borough== "Manhattan", 
+    neighborhood == "Chinatown")|>
+  lm(price~ stars+ room_type, data = _ )|>
+  broom::tidy()
+
+nyc_airbnb|> 
+  filter( 
+    borough== "Manhattan", 
+    neighborhood == "Chelsea")|>
+  lm(price~ stars+ room_type, data = _ )|>
+  broom::tidy()
+```
+
+The results show they do differ by neighborhodos in the broough. 
+
+We can take this further for all nieghborhoods in Manhattan now which is the same as above but now for all neighborhoods by using `nest` for **borough and neighborhood**
+
+```{r}
+manhatten_neighborhood_fit_df = 
+  nyc_airbnb|> 
+  filter(borough == "Manhattan")|>
+  nest(data = -(borough:neighborhood))|>
+  mutate(
+    model = map (data, \(x) lm(price ~ stars + room_type, data = x )), 
+    results = map(model, broom::tidy)
+  )|> 
+  select(neighborhood, results)|> 
+  unnest(results)
+```
+**Tip: Do things once for a variable, then try to nest if its working, then run the nesting code step by step to make sure no lines of code break, and continu tidying**
+
+We can then look at the effect of room type using the above df but filtering by room_type. 
+
+```{r}
+manhatten_neighborhood_fit_df|> 
+  filter(str_detect(term, "room_type"))
+```
+
+Plot this dataframe: 
+```{r}
+manhatten_neighborhood_fit_df|> 
+  filter(str_detect(term, "room_type"))|> 
+  ggplot(aes(x= term, y = estimate))+ 
+  geom_boxplot()
+```
+
+# Binary Outcomes 
+
+```{r}
+baltimore_df = 
+  read_csv("data/homicide-data.csv") |> 
+  filter(city == "Baltimore") |> 
+  mutate(
+    resolved = as.numeric(disposition == "Closed by arrest"),
+    victim_age = as.numeric(victim_age),
+    victim_race = fct_relevel(victim_race, "White")) |> 
+  select(resolved, victim_age, victim_race, victim_sex)
+
+head(baltimore_df)
+```
+
+
