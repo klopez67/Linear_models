@@ -91,6 +91,8 @@ train_df|>
 - this over fits the training data on the model, so we cannot generalize this for a different dataset 
 
 **Smooth model fit** 
+
+- We use  `gam` when data is not linear 
 ```{r}
 train_df|>
   add_predictions(smooth_mod)|> 
@@ -115,3 +117,40 @@ Smooth_mod has lower RMSE
 We want to see if this differece is consistent for random data testing 
 
 # Repeat the Train/test split 
+
+This creates 100 dataframes 
+```{r}
+cv_df = 
+  crossv_mc( lidar_df, 100)|>
+  mutate(
+    train= map(train, as_tibble ), 
+    test= map(test, as_tibble)
+  )
+```
+
+To see the different rows in the datasets converted as a dataframe: 
+```{r, eval= FALSE}
+cv_df|>
+  pull(train)|>
+  nth(3)|>
+  as_tibble()
+```
+
+Fit models, extract RMSEs 
+
+- use `map()` to run the linear model on the training dataframes 
+- then use `map2_bdl()` to map over model dataframe and test dataframes and return the single number of rmse for that linear model
+```{r}
+
+cv_results_df = 
+  cv_df |>
+  mutate(
+    linear_mod = map( train, \(x) lm (logratio ~ range, data = x ))
+  )|>
+  mutate(
+    rmse_linear = map2_dbl( linear_mod, test, rmse )
+  )
+
+cv_results_df
+```
+

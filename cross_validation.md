@@ -128,6 +128,8 @@ train_df|>
 
 **Smooth model fit**
 
+- We use `gam` when data is not linear
+
 ``` r
 train_df|>
   add_predictions(smooth_mod)|> 
@@ -166,3 +168,57 @@ Smooth_mod has lower RMSE
 We want to see if this differece is consistent for random data testing
 
 # Repeat the Train/test split
+
+This creates 100 dataframes
+
+``` r
+cv_df = 
+  crossv_mc( lidar_df, 100)|>
+  mutate(
+    train= map(train, as_tibble ), 
+    test= map(test, as_tibble)
+  )
+```
+
+To see the different rows in the datasets converted as a dataframe:
+
+``` r
+cv_df|>
+  pull(train)|>
+  nth(3)|>
+  as_tibble()
+```
+
+Fit models, extract RMSEs
+
+- use `map()` to run the linear model on the training dataframes
+- then use `map2_bdl()` to map over model dataframe and test dataframes
+  and return the single number of rmse for that linear model
+
+``` r
+cv_results_df = 
+  cv_df |>
+  mutate(
+    linear_mod = map( train, \(x) lm (logratio ~ range, data = x ))
+  )|>
+  mutate(
+    rmse_linear = map2_dbl( linear_mod, test, rmse )
+  )
+
+cv_results_df
+```
+
+    ## # A tibble: 100 × 5
+    ##    train              test              .id   linear_mod rmse_linear
+    ##    <list>             <list>            <chr> <list>           <dbl>
+    ##  1 <tibble [176 × 3]> <tibble [45 × 3]> 001   <lm>             0.129
+    ##  2 <tibble [176 × 3]> <tibble [45 × 3]> 002   <lm>             0.133
+    ##  3 <tibble [176 × 3]> <tibble [45 × 3]> 003   <lm>             0.118
+    ##  4 <tibble [176 × 3]> <tibble [45 × 3]> 004   <lm>             0.123
+    ##  5 <tibble [176 × 3]> <tibble [45 × 3]> 005   <lm>             0.140
+    ##  6 <tibble [176 × 3]> <tibble [45 × 3]> 006   <lm>             0.141
+    ##  7 <tibble [176 × 3]> <tibble [45 × 3]> 007   <lm>             0.125
+    ##  8 <tibble [176 × 3]> <tibble [45 × 3]> 008   <lm>             0.131
+    ##  9 <tibble [176 × 3]> <tibble [45 × 3]> 009   <lm>             0.117
+    ## 10 <tibble [176 × 3]> <tibble [45 × 3]> 010   <lm>             0.136
+    ## # ℹ 90 more rows
