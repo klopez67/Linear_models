@@ -1,0 +1,6 @@
+---
+title: "Bootstrapping"
+author: "Kimberly Lopez"
+date: "2024-11-14"
+output: html_document
+---
