@@ -139,18 +139,41 @@ cv_df|>
 Fit models, extract RMSEs 
 
 - use `map()` to run the linear model on the training dataframes 
-- then use `map2_bdl()` to map over model dataframe and test dataframes and return the single number of rmse for that linear model
+- then use `map2_bdl()` to map `rmse()`over model dataframe and test dataframes and return the single number of rmse for that linear model
+
+
 ```{r}
 
 cv_results_df = 
   cv_df |>
   mutate(
-    linear_mod = map( train, \(x) lm (logratio ~ range, data = x ))
-  )|>
+    linear_mod = map( train, \(x) lm (logratio ~ range, data = x )), 
+    smooth_mod = map( train, \(x) gam(logratio ~ s(range), data = x )), 
+    wiggly_mod = map(train, \(x) gam(logratio ~ s(range, k = 30), sp = 10e-6, data= x )
+  ))|>
   mutate(
-    rmse_linear = map2_dbl( linear_mod, test, rmse )
+    rmse_linear = map2_dbl( linear_mod, test, rmse ), 
+    rmse_smooth = map2_dbl(smooth_mod, test, rmse), 
+    rmse_wiggly = map2_dbl(wiggly_mod, test, rmse)
   )
 
 cv_results_df
 ```
 
+**Cross validation was used to compare datasets and models** 
+
+Looking at the RMSE distirbution: 
+```{r}
+
+cv_results_df |>
+  select(starts_with("rmse"))|>
+  pivot_longer( 
+    everything(),
+    names_to = "model",
+    values_to= "rmse", 
+    names_prefix= "rmse_")|> 
+  ggplot(aes(x= model, y = rmse))+ 
+  geom_violin()
+```
+
+The smooth model consistently out predicts the linear model and slighty better than the wiggly model. 

@@ -192,33 +192,59 @@ cv_df|>
 Fit models, extract RMSEs
 
 - use `map()` to run the linear model on the training dataframes
-- then use `map2_bdl()` to map over model dataframe and test dataframes
-  and return the single number of rmse for that linear model
+- then use `map2_bdl()` to map `rmse()`over model dataframe and test
+  dataframes and return the single number of rmse for that linear model
 
 ``` r
 cv_results_df = 
   cv_df |>
   mutate(
-    linear_mod = map( train, \(x) lm (logratio ~ range, data = x ))
-  )|>
+    linear_mod = map( train, \(x) lm (logratio ~ range, data = x )), 
+    smooth_mod = map( train, \(x) gam(logratio ~ s(range), data = x )), 
+    wiggly_mod = map(train, \(x) gam(logratio ~ s(range, k = 30), sp = 10e-6, data= x )
+  ))|>
   mutate(
-    rmse_linear = map2_dbl( linear_mod, test, rmse )
+    rmse_linear = map2_dbl( linear_mod, test, rmse ), 
+    rmse_smooth = map2_dbl(smooth_mod, test, rmse), 
+    rmse_wiggly = map2_dbl(wiggly_mod, test, rmse)
   )
 
 cv_results_df
 ```
 
-    ## # A tibble: 100 × 5
-    ##    train              test              .id   linear_mod rmse_linear
-    ##    <list>             <list>            <chr> <list>           <dbl>
-    ##  1 <tibble [176 × 3]> <tibble [45 × 3]> 001   <lm>             0.129
-    ##  2 <tibble [176 × 3]> <tibble [45 × 3]> 002   <lm>             0.133
-    ##  3 <tibble [176 × 3]> <tibble [45 × 3]> 003   <lm>             0.118
-    ##  4 <tibble [176 × 3]> <tibble [45 × 3]> 004   <lm>             0.123
-    ##  5 <tibble [176 × 3]> <tibble [45 × 3]> 005   <lm>             0.140
-    ##  6 <tibble [176 × 3]> <tibble [45 × 3]> 006   <lm>             0.141
-    ##  7 <tibble [176 × 3]> <tibble [45 × 3]> 007   <lm>             0.125
-    ##  8 <tibble [176 × 3]> <tibble [45 × 3]> 008   <lm>             0.131
-    ##  9 <tibble [176 × 3]> <tibble [45 × 3]> 009   <lm>             0.117
-    ## 10 <tibble [176 × 3]> <tibble [45 × 3]> 010   <lm>             0.136
+    ## # A tibble: 100 × 9
+    ##    train    test              .id   linear_mod smooth_mod wiggly_mod rmse_linear
+    ##    <list>   <list>            <chr> <list>     <list>     <list>           <dbl>
+    ##  1 <tibble> <tibble [45 × 3]> 001   <lm>       <gam>      <gam>            0.129
+    ##  2 <tibble> <tibble [45 × 3]> 002   <lm>       <gam>      <gam>            0.133
+    ##  3 <tibble> <tibble [45 × 3]> 003   <lm>       <gam>      <gam>            0.118
+    ##  4 <tibble> <tibble [45 × 3]> 004   <lm>       <gam>      <gam>            0.123
+    ##  5 <tibble> <tibble [45 × 3]> 005   <lm>       <gam>      <gam>            0.140
+    ##  6 <tibble> <tibble [45 × 3]> 006   <lm>       <gam>      <gam>            0.141
+    ##  7 <tibble> <tibble [45 × 3]> 007   <lm>       <gam>      <gam>            0.125
+    ##  8 <tibble> <tibble [45 × 3]> 008   <lm>       <gam>      <gam>            0.131
+    ##  9 <tibble> <tibble [45 × 3]> 009   <lm>       <gam>      <gam>            0.117
+    ## 10 <tibble> <tibble [45 × 3]> 010   <lm>       <gam>      <gam>            0.136
     ## # ℹ 90 more rows
+    ## # ℹ 2 more variables: rmse_smooth <dbl>, rmse_wiggly <dbl>
+
+**Cross validation was used to compare datasets and models**
+
+Looking at the RMSE distirbution:
+
+``` r
+cv_results_df |>
+  select(starts_with("rmse"))|>
+  pivot_longer( 
+    everything(),
+    names_to = "model",
+    values_to= "rmse", 
+    names_prefix= "rmse_")|> 
+  ggplot(aes(x= model, y = rmse))+ 
+  geom_violin()
+```
+
+![](cross_validation_files/figure-gfm/unnamed-chunk-14-1.png)<!-- -->
+
+The smooth model consistently out predicts the linear model and slighty
+better than the wiggly model.
