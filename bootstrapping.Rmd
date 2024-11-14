@@ -2,5 +2,264 @@
 title: "Bootstrapping"
 author: "Kimberly Lopez"
 date: "2024-11-14"
-output: html_document
+output: github_document
 ---
+
+```{r warning=FALSE}
+library(tidyverse)
+library(p8105.datasets)
+
+set.seed(1)
+
+```
+
+# Bootstrapping in Simple Linear Regression
+
+sim_df_const and sim_df_nonconstant 
+
+First I’ll generate x, then an error sampled from a normal distribution, and then a response y; this all gets stored in sim_df_const. Then I’ll modify this by multiplying the errors by a term that involves x, and create a new response variable y
+```{r}
+n_samp= 250 
+
+
+sim_df_const = 
+  tibble(
+    x = rnorm(n_samp, 1, 1),
+    error = rnorm(n_samp, 0, 1),
+    y = 2 + 3 * x + error
+  )
+
+sim_df_nonconst = sim_df_const |> 
+  mutate(
+  error = error * .75 * x,
+  y = 2 + 3 * x + error
+)
+
+```
+
+Graphing sim_df_const: 
+```{r}
+sim_df_const|>
+  ggplot(aes(x=x,y=y))+ 
+  geom_point() + 
+  stat_smooth(method = "lm")
+```
+
+Graphing sim_df_noncon
+```{r}
+sim_df_nonconst|>
+  ggplot(aes(x=x,y=y))+ 
+  geom_point() + 
+  stat_smooth(method = "lm")
+```
+
+These confidence intervals are not accurate since the uncertainy area does not hold the observations 
+
+Looking at the regression reults we see the similar thing
+
+```{r}
+sim_df_const|>
+  lm(y~x, data = _) |>
+  broom::tidy()|>
+  knitr::kable(digits=3)
+```
+
+WE should be getting differences in standard errors since assumptions of equal variances are violated despite p-value. 
+
+# Drawing one bootstrap sample 
+
+ This function should have the data frame as the argument, and should return a sample from that dataframe drawn with replacement.
+ **This has a defualt of size 1 since it is constant, but we need to change replace=TRUE to ensure we dont use the same data over again**
+ 
+```{r}
+boot_sample = function(df) {
+  sample_frac(df, replace = TRUE)
+}
+```
+
+
+```{r}
+sim_df_nonconst|>
+  boot_sample()|>
+  ggplot(aes(x=x, y=y))+ 
+  geom_point(alpha=.5)+ 
+  stat_smooth(method="lm")
+```
+
+We can do this bootstrap method as part of an analysis 
+
+
+```{r}
+sim_df_nonconst|>
+  boot_sample()|>
+  lm(y~x, data = _) |>
+  broom::tidy()|>
+  knitr::kable(digits=3)
+```
+
+# Drawing many bootstrap samples 
+
+We can save these estimated samples
+
+We’re going to draw repeated samples with replacement, and then analyze each of those samples separately. It would be really great to have a data structure that makes it possible to keep track of everything. Maybe a **list column**!
+
+- starts with a tibble 
+- then mutate by mapping across all strap_numbers 
+- **check code by using boot_straps|>pull(strap_sample)|> nth(2) **
+- used \(i) and \(df) to identify anonymous function 
+- model runs the linear regresion on each bootstrap
+- results tidies the models
+
+```{r}
+boot_straps = 
+  tibble(
+    strap_number = 1:10
+  )|>
+  mutate(
+    strap_sample = map(strap_number, \(i) boot_sample(df = sim_df_nonconst)),
+    models = map(strap_sample, \(df) lm (y~x, data = df)),
+    results= map(models, broom::tidy)
+    )
+
+boot_straps
+```
+```{r}
+boot_strap_results = 
+  boot_straps|>
+  select(strap_number, results)|>
+  unnest(results)
+
+boot_strap_results
+```
+
+Now we can look at the effect of bootstrap and standard error 
+```{r}
+boot_strap_results_se = 
+  boot_straps|>
+  select(strap_number, results)|>
+  unnest(results)|>
+  group_by(term)|>
+  summarize(
+    boot_se= sd(estimate)
+  )
+
+boot_strap_results_se
+```
+
+**Using the bootsrap when the sample assumptio is not violated, but it gives you something you can do even when the assumptions are violated**
+
+
+# Doing the same thing using `modelr`
+
+- when you use modelr some cases you need to turn the modelr into a tibble 
+- could be more clear creating the bootstrap by 'modelr' instead of 'map' 
+
+```{r}
+boot_straps = 
+  sim_df_nonconst |> 
+  modelr::bootstrap(n = 1000)|>
+  mutate(
+    strap= map(strap,as_tibble),
+    models= map(strap,\(df) lm(y~x, data = df)),
+    results = map(models, broom::tidy)
+  )|>
+  select(.id, results)|>
+  unnest(results)
+
+boot_straps
+```
+
+# What do we report 
+
+We can report the mean of all the estimates, and estimated standard eror of the boot strap. 
+
+The reason we do bootstrapping is to construct a CI for an estimate, upper and lower bound. 
+
+**Here we might have residual error but not skewed distribution.**
+```{r}
+boot_straps|>
+  group_by(term)|>
+  summarize( 
+    boot_est = mean(estimate),
+    boot_se = sd(estimate), 
+    boot_ci_lb = quantile(estimate,.025),
+    boot_ci_ub = quantile(estimate,.975)
+    )
+```
+
+# Bootstrapping on Airbnb 
+
+We saw previously the residual assumptions were not accurate 
+
+Here were going to run a regression of stars and room_type in Manhattan
+```{r}
+data("nyc_airbnb")
+
+manhattan_df = 
+  nyc_airbnb |> 
+  mutate(stars = review_scores_location / 2) |> 
+  rename(
+    borough = neighbourhood_group,
+    neighborhood = neighbourhood) |> 
+  filter(borough != "Manhattan") |> 
+  drop_na(price, stars) |> 
+  select(price, stars, room_type)
+```
+
+Plot the data 
+```{r}
+manhattan_df|> 
+  ggplot(aes(x = stars, y = price, color = room_type)) + 
+  geom_point() +
+  stat_smooth( method="lm", se=FALSE)
+```
+
+Clearly this is not constant variance and assumptions are violated with skewed distributions. Variance is much higher as stars increase. We can fit a regression but 
+
+```{r}
+manhattan_df |> 
+  lm(price~ stars + room_type, data = _)|>
+  broom::tidy() 
+```
+
+
+If sample size gets bigger, sample size helps reduce violation of assumptions, but here we have limited data samples. so were going to run bootstrap. 
+
+Bootstrap for better inference
+
+```{r}
+
+manhattan_df|>
+  modelr::bootstrap(10)|>
+  mutate(
+    
+    strap= map(strap, as_tibble) ,
+    models = map(strap, \(df) lm(price ~ stars + room_type, data = df)),
+    results = map(models, broom::tidy))  |>
+  select(.id, results )|>
+  unnest(results)
+  
+```
+
+We can visualize this: for 1000 samples
+
+```{r}
+manhattan_df|>
+  modelr::bootstrap(1000)|>
+  mutate(
+    
+    strap= map(strap, as_tibble) ,
+    models = map(strap, \(df) lm(price ~ stars + room_type, data = df)),
+    results = map(models, broom::tidy))  |>
+  select(.id, results )|>
+  unnest(results)|>
+  filter(term == "stars")|>
+  ggplot(aes(estimate))+ 
+  geom_density()
+```
+
+Eventually the estimates will become closer to being normally distributed still not enough. This distribution has a heavy tail extending to low values and a bit of a “shoulder”, features that may be related to the frequency with which large outliers are included in the bootstrap sample.
+
+When reporting
+- report results 
+- report
