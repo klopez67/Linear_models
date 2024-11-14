@@ -203,7 +203,7 @@ nyc_airbnb|>
 ```
 
 
-We can check specifically for each borough and unset the reuslts column and tidy the data to get values on coefficients for each variable. 
+We can check specifically for each borough and unset the results column and tidy the data to get values on coefficients for each variable. 
 
 **This is more tidying stuff after model fitting**
 ```{r}
